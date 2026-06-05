@@ -39,5 +39,9 @@
     height: 100%;
     display: block;
     touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
 </style>
