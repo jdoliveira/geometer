@@ -16,6 +16,11 @@ const BROWNIAN = 0.12;     // per-axis velocity jitter per frame
 const DAMPING = 0.94;      // velocity decay
 const POINTER_PULL = 0.0009;
 const POINTER_RADIUS = 260;
+// Short-range mutual repulsion. Prevents the multiply blend from
+// compounding to black when particles stack under pointer pull, and
+// gives the field a natural "exhale" once the pointer releases.
+const REPEL_RADIUS = 28;
+const REPEL_K = 0.05;
 
 function pick(arr) {
   return arr[(Math.random() * arr.length) | 0];
@@ -39,16 +44,17 @@ export function createField(width, height) {
 }
 
 export function stepField(field, dt, pointer, width, height) {
+  const ps = field.particles;
+  const N = ps.length;
   const pressed = pointer.pressed ? 3 : 1;
   const active = pointer.active;
-  for (let i = 0; i < field.particles.length; i++) {
-    const p = field.particles[i];
 
-    // Brownian jitter
+  // Pass 1: per-particle forces — brownian + pointer pull
+  for (let i = 0; i < N; i++) {
+    const p = ps[i];
     p.vx += (Math.random() - 0.5) * BROWNIAN;
     p.vy += (Math.random() - 0.5) * BROWNIAN;
 
-    // Pointer influence: pull within a soft radius
     if (active) {
       const dx = pointer.x - p.x;
       const dy = pointer.y - p.y;
@@ -60,14 +66,36 @@ export function stepField(field, dt, pointer, width, height) {
         p.vy += dy * pull;
       }
     }
+  }
 
+  // Pass 2: pairwise short-range repulsion (excluded-volume packing)
+  const repelR2 = REPEL_RADIUS * REPEL_RADIUS;
+  for (let i = 0; i < N; i++) {
+    const a = ps[i];
+    for (let j = i + 1; j < N; j++) {
+      const b = ps[j];
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < repelR2 && d2 > 0.0001) {
+        const d = Math.sqrt(d2);
+        const f = (REPEL_K * (1 - d / REPEL_RADIUS)) / d;
+        a.vx += dx * f;
+        a.vy += dy * f;
+        b.vx -= dx * f;
+        b.vy -= dy * f;
+      }
+    }
+  }
+
+  // Pass 3: damping, integration, edge wrap
+  for (let i = 0; i < N; i++) {
+    const p = ps[i];
     p.vx *= DAMPING;
     p.vy *= DAMPING;
-
     p.x += p.vx;
     p.y += p.vy;
 
-    // Wrap edges so the field never feels bounded
     if (p.x < -p.r) p.x = width + p.r;
     else if (p.x > width + p.r) p.x = -p.r;
     if (p.y < -p.r) p.y = height + p.r;
